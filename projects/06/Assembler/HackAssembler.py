@@ -97,5 +97,18 @@ def HackAssembler(asmFileName):
   secondPass(asmFileName, parser, symbolTable, convert_ASM_to_BIN)
   
 if (__name__ == '__main__'):
-  asmFileName = sys.argv[1]
-  HackAssembler(asmFileName)
+  help_msg = '''
+  ==================================================
+  | HELP                                           |
+  ==================================================
+  | Run below command to execute HackAssembler:    |
+  | >> HackAssembler.py <ASM file path>            |
+  | eg: >> HackAssembler.py Add.asm                |
+  ==================================================
+  '''
+
+  if (len(sys.argv) < 2):
+    print(help_msg)
+  else:
+    asmFileName = sys.argv[1]
+    HackAssembler(asmFileName)
