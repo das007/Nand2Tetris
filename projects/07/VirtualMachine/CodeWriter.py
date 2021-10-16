@@ -4,9 +4,11 @@ import sys
 
 class CodeWriter:
     __asm_fp = None
+    __vmFileName = ""
 
     # Conditional Operator Counter
     __cond_opt_cnt = 0
+    __fun_ret_lbl_cnt = 0
 
     def __init__(self, asmFileName):
         self.__asm_fp = open(asmFileName+".asm", 'w')
@@ -50,7 +52,7 @@ class CodeWriter:
     # STACK functions : END
     #################################
 
-    def writePushPop(self, cmd, memSegment, index, vmFilename):
+    def writePushPop(self, cmd, memSegment, index):
         '''
             Write ASM instructions to PUSH or POP to Memory Segments
         '''
@@ -97,7 +99,7 @@ class CodeWriter:
             elif (memSegment == "temp"):
                 m = str(5 + index)
             else:
-                m = vmFilename + "." + str(index)
+                m = self.__vmFileName + "." + str(index)
 
             if(cmd == "push"):
                 self.__asm_fp.write("@" + m + "\n")
@@ -254,6 +256,130 @@ class CodeWriter:
             # Push result on stack
             self.__push()
 
+    def writeLabel(self, label):
+        self.__asm_fp.write("(" + label + ")" + "\n")
+
+    def writeGoto(self, label):
+        self.__asm_fp.write("@" + label + "\n")
+        self.__asm_fp.write("0;JMP" + "\n")
+
+    def writeIf(self, label):
+        self.__pop()
+        self.__asm_fp.write("@" + label + "\n")
+        self.__asm_fp.write("D;JNE" + "\n")
+
+    def writeCall(self, functionName, nArgs):
+        self.__fun_ret_lbl_cnt = self.__fun_ret_lbl_cnt + 1
+        returnLabel = functionName + "$ret." + str(self.__fun_ret_lbl_cnt)
+        
+        # push returnLabel
+        self.__asm_fp.write("@" + returnLabel + "\n")
+        self.__asm_fp.write("D=A" + "\n")
+        self.__push()
+    
+        # push ["LCL", "ARG", "THIS", "THAT"]
+        memSegs = ["LCL", "ARG", "THIS", "THAT"]
+        for mSeg in memSegs:
+            self.__asm_fp.write("// Push " + mSeg + " on Stack" + "\n")
+            self.__asm_fp.write("@" + mSeg + "\n")
+            self.__asm_fp.write("D=M" + "\n")
+            self.__push()
+        
+        # ARG = SP - 5 - nArgs
+        self.__asm_fp.write("// ARG = SP - 5 - nArgs" + "\n")
+        self.__asm_fp.write("@5" + "\n")
+        self.__asm_fp.write("D=A" + "\n")
+        self.__asm_fp.write("@SP" + "\n")
+        self.__asm_fp.write("D=M-D" + "\n")
+        self.__asm_fp.write("@" + str(nArgs) + "\n")
+        self.__asm_fp.write("D=D-A" + "\n")
+        self.__asm_fp.write("@ARG" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        # LCL = SP
+        self.__asm_fp.write("@SP" + "\n")
+        self.__asm_fp.write("D=M" + "\n")
+        self.__asm_fp.write("@LCL" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        # Goto functionName
+        self.__asm_fp.write("@" + functionName + "\n")
+        self.__asm_fp.write("0;JMP" + "\n")
+        
+        # (returnLabel)
+        self.__asm_fp.write("(" + returnLabel + ")" + "\n")
+    
+    def writeFunction(self, functionName, nVars):
+        self.__asm_fp.write("(" + functionName + ")" + "\n")
+        self.__asm_fp.write("// Initializing "+ str(nVars) + " local variables to 0" + "\n")
+        if (nVars > 0):
+            self.__asm_fp.write("D=0" + "\n")
+            for i in range(0, nVars): # TODO: Implement for loop in asm
+                self.__push()
+        
+    def writeReturn(self):
+        # endframe = LCL ~~> R14 = LCL
+        self.__asm_fp.write("@LCL" + "\n")
+        self.__asm_fp.write("D=M" + "\n")
+        self.__asm_fp.write("@R14" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        # retAddr = *(endFrame - 5) ~~> R15 = *(R14 - 5)
+        self.__asm_fp.write("@5" + "\n")
+        self.__asm_fp.write("D=A" + "\n")
+        self.__asm_fp.write("@R14" + "\n")
+        self.__asm_fp.write("D=M-D" + "\n")
+        self.__asm_fp.write("A=D" + "\n")
+        self.__asm_fp.write("D=M" + "\n")
+        self.__asm_fp.write("@R15" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        # *ARG = pop() ~~> *ARG = returnValue
+        self.__pop()
+        self.__asm_fp.write("@ARG" + "\n")
+        self.__asm_fp.write("A=M" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        # SP = ARG + 1 ~~> RAM[SP] = RAM[ARG] + 1
+        self.__asm_fp.write("@ARG" + "\n")
+        self.__asm_fp.write("D=M" + "\n")
+        self.__asm_fp.write("@SP" + "\n")
+        self.__asm_fp.write("M=D+1" + "\n")
+        
+        memSegs = ["THAT", "THIS", "ARG", "LCL"]
+        
+        for i in range(0,len(memSegs)):
+            self.__asm_fp.write("// " + memSegs[i] + " = *(endFrame-" + str(i+1) + ")\n")
+            self.__asm_fp.write("@R14" + "\n")
+            self.__asm_fp.write("D=M" + "\n")
+            self.__asm_fp.write("@" + str(i+1) + "\n")
+            self.__asm_fp.write("A=D-A" + "\n")
+            self.__asm_fp.write("D=M" + "\n")
+            self.__asm_fp.write("@" + memSegs[i] + "\n")
+            self.__asm_fp.write("M=D" + "\n")
+        
+        # goto retAddr
+        self.__asm_fp.write("// goto retAddr" + "\n")
+        self.__asm_fp.write("@R15" + "\n")
+        self.__asm_fp.write("A=M" + "\n")
+        self.__asm_fp.write("0;JMP" + "\n")
+        
+    def setFileName(self, fileName):
+        self.__vmFileName = fileName
+        self.__asm_fp.write("\n// ASM code for File : " + fileName + ".vm" + "\n")
+    
+    def writeInit(self):
+        # BootStrap Code
+        self.__asm_fp.write("// Bootstrap Code" + "\n")
+        self.__asm_fp.write("\n// Set SP=256" + "\n")
+        self.__asm_fp.write("@256" + "\n")
+        self.__asm_fp.write("D=A" + "\n")
+        self.__asm_fp.write("@SP" + "\n")
+        self.__asm_fp.write("M=D" + "\n")
+        
+        self.__asm_fp.write("\n// Call Sys.init" + "\n")
+        self.writeCall("Sys.init", 0)
+
     #################################
     # ARITHMETIC functions : START
     def __addition(self):
@@ -345,6 +471,7 @@ class CodeWriter:
         self.__asm_fp.write("\n//" + asmInstruction)
 
     def __endProgram(self):
+        self.__asm_fp.write("\n// END OF PROGRAM" + "\n")
         self.__asm_fp.write("(END_OF_PROGRAM)" + "\n")
         self.__asm_fp.write("@END_OF_PROGRAM" + "\n")
         self.__asm_fp.write("0;JMP" + "\n")
@@ -353,5 +480,5 @@ class CodeWriter:
         self.__endProgram()
         self.__asm_fp.close()
 
-    # UTILITY functions : START
+    # UTILITY functions : END
     #################################
